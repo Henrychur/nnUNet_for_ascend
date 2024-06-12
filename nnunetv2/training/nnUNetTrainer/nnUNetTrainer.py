@@ -36,11 +36,15 @@ from batchgeneratorsv2.transforms.utils.pseudo2d import Convert3DTo2DTransform, 
 from batchgeneratorsv2.transforms.utils.random import RandomTransform
 from batchgeneratorsv2.transforms.utils.remove_label import RemoveLabelTansform
 from batchgeneratorsv2.transforms.utils.seg_to_regions import ConvertSegmentationToRegionsTransform
+import torch
+import torch_npu
+import torch._dynamo
+torch._dynamo.config.suppress_errors = True
 from torch import autocast, nn
 from torch import distributed as dist
 from torch._dynamo import OptimizedModule
-from torch.cuda import device_count
-from torch.cuda.amp import GradScaler
+from torch.npu import device_count
+from torch.npu.amp import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from nnunetv2.configuration import ANISO_THRESHOLD, default_num_processes
@@ -71,7 +75,7 @@ from nnunetv2.utilities.plans_handling.plans_handler import PlansManager
 
 class nnUNetTrainer(object):
     def __init__(self, plans: dict, configuration: str, fold: int, dataset_json: dict, unpack_dataset: bool = True,
-                 device: torch.device = torch.device('cuda')):
+                 device: torch.device = torch.device('npu')):
         # From https://grugbrain.dev/. Worth a read ya big brains ;-)
 
         # apex predator of grug is complexity
@@ -95,15 +99,15 @@ class nnUNetTrainer(object):
         self.device = device
 
         # print what device we are using
-        if self.is_ddp:  # implicitly it's clear that we use cuda in this case
+        if self.is_ddp:  # implicitly it's clear that we use npu in this case
             print(f"I am local rank {self.local_rank}. {device_count()} GPUs are available. The world size is "
                   f"{dist.get_world_size()}."
                   f"Setting device to {self.device}")
-            self.device = torch.device(type='cuda', index=self.local_rank)
+            self.device = torch.device(type='npu', index=self.local_rank)
         else:
-            if self.device.type == 'cuda':
+            if self.device.type == 'npu':
                 # we might want to let the user pick this but for now please pick the correct GPU with CUDA_VISIBLE_DEVICES=X
-                self.device = torch.device(type='cuda', index=0)
+                self.device = torch.device(type='npu', index=0)
             print(f"Using device: {self.device}")
 
         # loading and saving this class for continuing from checkpoint should not happen based on pickling. This
@@ -161,7 +165,7 @@ class nnUNetTrainer(object):
         self.num_input_channels = None  # -> self.initialize()
         self.network = None  # -> self.build_network_architecture()
         self.optimizer = self.lr_scheduler = None  # -> self.initialize
-        self.grad_scaler = GradScaler() if self.device.type == 'cuda' else None
+        self.grad_scaler = GradScaler() if self.device.type == 'npu' else None
         self.loss = None  # -> self.initialize
 
         ### Simple logging. Don't take that away from me!
@@ -287,8 +291,8 @@ class nnUNetTrainer(object):
             hostname = subprocess.getoutput(['hostname'])
             dct['hostname'] = hostname
             torch_version = torch.__version__
-            if self.device.type == 'cuda':
-                gpu_name = torch.cuda.get_device_name()
+            if self.device.type == 'npu':
+                gpu_name = torch.npu.get_device_name()
                 dct['gpu_name'] = gpu_name
                 cudnn_version = torch.backends.cudnn.version()
             else:
@@ -686,11 +690,11 @@ class nnUNetTrainer(object):
             mt_gen_train = NonDetMultiThreadedAugmenter(data_loader=dl_tr, transform=None,
                                                         num_processes=allowed_num_processes,
                                                         num_cached=max(6, allowed_num_processes // 2), seeds=None,
-                                                        pin_memory=self.device.type == 'cuda', wait_time=0.002)
+                                                        pin_memory=self.device.type == 'npu', wait_time=0.002)
             mt_gen_val = NonDetMultiThreadedAugmenter(data_loader=dl_val,
                                                       transform=None, num_processes=max(1, allowed_num_processes // 2),
                                                       num_cached=max(3, allowed_num_processes // 4), seeds=None,
-                                                      pin_memory=self.device.type == 'cuda',
+                                                      pin_memory=self.device.type == 'npu',
                                                       wait_time=0.002)
         # # let's get this party started
         _ = next(mt_gen_train)
@@ -990,7 +994,7 @@ class nnUNetTrainer(object):
         # If the device_type is 'cpu' then it's slow as heck and needs to be disabled.
         # If the device_type is 'mps' then it will complain that mps is not implemented, even if enabled=False is set. Whyyyyyyy. (this is why we don't make use of enabled=False)
         # So autocast will only be active if we have a cuda device.
-        with autocast(self.device.type, enabled=True) if self.device.type == 'cuda' else dummy_context():
+        with autocast(self.device.type, enabled=True) if self.device.type == 'npu' else dummy_context():
             output = self.network(data)
             # del data
             l = self.loss(output, target)
@@ -1036,7 +1040,7 @@ class nnUNetTrainer(object):
         # If the device_type is 'cpu' then it's slow as heck and needs to be disabled.
         # If the device_type is 'mps' then it will complain that mps is not implemented, even if enabled=False is set. Whyyyyyyy. (this is why we don't make use of enabled=False)
         # So autocast will only be active if we have a cuda device.
-        with autocast(self.device.type, enabled=True) if self.device.type == 'cuda' else dummy_context():
+        with autocast(self.device.type, enabled=True) if self.device.type == 'npu' else dummy_context():
             output = self.network(data)
             del data
             l = self.loss(output, target)

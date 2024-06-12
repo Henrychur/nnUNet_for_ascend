@@ -1,15 +1,44 @@
 # Welcome to the new nnU-Net!
+## What is this repo for?
+This repository is forked from the official nnU-net repository, and add support for the Ascend910B NPU. We have test the code on the 
+platform with Kunpeng 920 CPU and 8xAscend910B NPU.
+1. Install Ascend Extension for Pytorch
+The details are on https://gitee.com/ascend/pytorch
+For example, with aarch64 CPU
+```bash
+# install pytorch
+pip3 install torch==2.1.0
+# install dependencies for pytorch_npu
+pip3 install pyyaml 
+pip3 install setuptools
+# install torch_npu
+pip3 install torch-npu==2.1.0.post3
+```
+Before running the code, you should also use the following commands to initialise the CANN environment variables
+```bash
+# Default path, change it if needed.
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+```
+2. Install nnU-net repo following the guide 
+[Installation instructions](documentation/installation_instructions.md)
 
-Click [here](https://github.com/MIC-DKFZ/nnUNet/tree/nnunetv1) if you were looking for the old one instead.
+3. Prepare the Dataset
+- [Dataset conversion](documentation/dataset_format.md)
 
-Coming from V1? Check out the [TLDR Migration Guide](documentation/tldr_migration_guide_from_v1.md). Reading the rest of the documentation is still strongly recommended ;-)
+4. Start Training
+Notice that, we need to set nnUnet_compile False, as currently torch_npu doesn't support this feature properly.
+```bash
+export nnUNet_compile=False
+```
+Then you can start training on one npu as usual
+```bash
+nnUNetv2_train 666 3d_fullres all
+```
 
-## **2024-04-18 UPDATE: New residual encoder UNet presets available!**
-Residual encoder UNet presets substantially improve segmentation performance.
-They ship for a variety of GPU memory targets. It's all awesome stuff, promised! 
-Read more :point_right: [here](documentation/resenc_presets.md) :point_left:
-
-Also check out our [new paper](https://arxiv.org/pdf/2404.09556.pdf) on systematically benchmarking recent developments in medical image segmentation. You might be surprised!
+or train with multi-npus on one node
+```bash
+nnUNetv2_train 666 3d_fullres all -num_gpus 8
+```
 
 # What is nnU-Net?
 Image datasets are enormously diverse: image dimensionality (2D, 3D), modalities/input channels (RGB image, CT, MRI, microscopy, ...), 
